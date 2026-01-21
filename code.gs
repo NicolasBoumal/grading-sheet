@@ -3,12 +3,13 @@
 */
 
 function onOpen() {
-  // Make sure these are hidden
-  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Template_").hideSheet();
-  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Emails").hideSheet();
-  SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Totals").hideSheet();
+  // Hide helper sheets
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheetByName("Template_").hideSheet();
+  ss.getSheetByName("Emails").hideSheet();
+  ss.getSheetByName("Totals").hideSheet();
 
-  // Create a custom menu named "Admin Tools"
+  // Create a custom menu
   SpreadsheetApp.getUi()
     .createMenu('⭐ Grading Sheet admin tools ⭐')
     .addItem('Send / resume sending E-mails', 'sendAllEmails')
@@ -29,21 +30,40 @@ function onEdit(e) {
   // Upon checking the "Problems are done" checkbox
   if (sheet.getName() === "Problems" && cellAddress === "F7") {
     if (newValue === "TRUE") {
-      if (validateSheetNames() && ui.alert("Once this is checked, the list of problems and their names should no longer be changed. Proceed?", ui.ButtonSet.YES_NO) == "YES") {
+
+      // Reset the checkbox first, because onEdit triggers have a 30-second
+      // runtime limit that does not pause while waiting for user input.
+      range.setValue(false);
+
+      if (!validateSheetNames()) {
+        return;
+      }
+
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+      // Check if at least one problem sheet was already created
+      const notTheFirstTime = ss.getSheets().some(s => {
+        return s.getName() === sheet.getRange("A2").getDisplayValue().toString().trim();
+      });
+
+      if (notTheFirstTime || ui.alert("Once this is checked, the list of problems and their names should no longer be changed.\n\nProceed?\n\n(Allow up to 30 seconds for the script to run. If not all problem sheets have been created, check the box anew until completion.)", ui.ButtonSet.YES_NO) == "YES") {
 
         createSheetsFromList();
 
-        SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Totals").showSheet();
+        // The script may run out of time before getting here.
 
-        // Prevent further edits to the list of problem names and to the checkbox itself.
+        ss.getSheetByName("Totals").showSheet();
+
+        // Prevent further edits to the list of problem names
         sheet.getRange("A:A").protect().setDescription("Problem names should no longer be changed.").setWarningOnly(true);
-        sheet.getRange("F7").protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
+
+        // We are done doing all the things that need to happen after checking the box,
+        // so it is safe to show it as "checked".
+        range.setValue(true);
+        range.protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
 
         ui.alert("Problem names are now protected (weakly) against accidental edits.");
 
-      }
-      else {
-        sheet.getRange("F7").setValue(false);
       }
     }
   }
@@ -51,49 +71,70 @@ function onEdit(e) {
   // Upon checking the "students and groups are done" checkbox
   if (sheet.getName() === "Students" && cellAddress === "K8") {
     if (newValue === "TRUE") {
-      if (ui.alert("Once this is checked, student names and their groups should no longer be changed. Proceed?", ui.ButtonSet.YES_NO) == "YES") {
-        
-        SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Emails").showSheet();
 
-        // Prevent further edits to the list of student names and groups, and to the checkbox itself.
-        sheet.getRange("A:A").protect().setDescription("Student names should no longer be changed (though it's really their ordering that should be preserved; typos are OK to fix).").setWarningOnly(true);
-        sheet.getRange("C:C").protect().setDescription("Student groups should no longer be changed (though their specific group name would be OK to change).").setWarningOnly(true);
-        sheet.getRange("K8").protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
+      // Reset the checkbox first, because onEdit triggers have a 30-second
+      // runtime limit that does not pause while waiting for user input.
+      range.setValue(false);
+
+      if (ui.alert("Once this is checked, student names and their groups should no longer be changed.\n\nProceed?\n\n(If so, then click YES within 30 seconds.)", ui.ButtonSet.YES_NO) == "YES") {
+        
+        // Prevent further edits to student names and group names.
+        lockStudentsGroups();
+
+        // We are done doing all the things that need to happen after checking the box,
+        // so it is safe to show it as "checked".
+        range.setValue(true);
+        range.protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
 
         ui.alert("Student names and group names are now protected (weakly) against accidental edits.");
 
-      }
-      else {
-        sheet.getRange("K8").setValue(false);
       }
     }
   }
 
   // Upon selecting a group to preview e-mail
-if (sheet.getName() === "Emails" && range.getA1Notation() === "G29") {
+  if (sheet.getName() === "Emails" && range.getA1Notation() === "G29") {
     const groupName = e.value;
+    previewEmail(groupName);
+  }
+}
+
+function lockStudentsGroups() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const studentSheet = ss.getSheetByName("Students");
+  const emailSheet = ss.getSheetByName("Emails");
+
+  // Do this first, as it is more important.
+  emailSheet.showSheet();
+
+  // Prevent further edits to the list of student names and groups, and to the checkbox itself.
+  studentSheet.getRange("A:A").protect().setDescription("Student names should no longer be changed (though it's really their ordering that should be preserved; typos are OK to fix).").setWarningOnly(true);
+  studentSheet.getRange("C:C").protect().setDescription("Student groups should no longer be changed (though their specific group name would be OK to change).").setWarningOnly(true);
+}
+
+function previewEmail(groupName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const emailSheet = ss.getSheetByName("Emails");
+  const toCell = emailSheet.getRange("G31");
+  const subjectCell = emailSheet.getRange("G30");
+  const bodyRange = emailSheet.getRange("F32:G50");
+
+  if (!groupName) {
+    [toCell, subjectCell, bodyRange].forEach(r => r.clearContent());
+    return;
+  }
+
+  try {
+    const data = getEmailData(groupName);
     
-    const toCell = sheet.getRange("G31");
-    const subjectCell = sheet.getRange("G30");
-    const bodyRange = sheet.getRange("F32:G50");
-
-    if (!groupName) {
-      [toCell, subjectCell, bodyRange].forEach(r => r.clearContent());
-      return;
-    }
-
-    try {
-      const data = getEmailData(groupName);
-      
-      toCell.setValue(data.to);
-      subjectCell.setValue(data.subject);
-      bodyRange.setValue(data.body);
-      
-      bodyRange.setVerticalAlignment("top");
-      bodyRange.setWrap(true);
-    } catch (err) {
-      bodyRange.setValue("Error generating preview: " + err.message);
-    }
+    toCell.setValue(data.to);
+    subjectCell.setValue(data.subject);
+    bodyRange.setValue(data.body);
+    
+    bodyRange.setVerticalAlignment("top");
+    bodyRange.setWrap(true);
+  } catch (err) {
+    bodyRange.setValue("Error generating preview: " + err.message);
   }
 }
 
@@ -119,56 +160,65 @@ function about() {
   );
 }
 
+function getLastRowInColumn(sheet, columnLetter) {
+  const range = sheet.getRange(columnLetter + ":" + columnLetter);
+  const values = range.getValues();
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i][0].toString().trim() !== "") {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
 function createSheetsFromList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const listSheet = ss.getSheetByName("Problems");
+  const problemSheet = ss.getSheetByName("Problems");
   const templateSheet = ss.getSheetByName("Template_");
   
-  const lastRow = listSheet.getLastRow();
-  if (lastRow < 2) return; 
+  const lastRow = getLastRowInColumn(problemSheet, "A");
+  if (lastRow < 2) return;
   
-  // Get the names and their neighboring data (Column A and B)
-  const dataRange = listSheet.getRange(2, 1, lastRow - 1, 2).getDisplayValues();
+  // Get the list of problem names
+  const names = problemSheet.getRange(2, 1, lastRow - 1, 1).getDisplayValues().flat();
   
-  dataRange.forEach((row, index) => {
-    const sheetName = row[0].toString().trim();
+  names.forEach((name, index) => {
+    const sheetName = name.trim();
     
     // Calculate the actual row number in the 'Problems' sheet
     // index starts at 0, and our data starts at row 2, so:
     const currentRow = index + 2; 
 
+    // If the sheet does not exist yet, create it
     if (sheetName !== "" && !ss.getSheetByName(sheetName)) {
+
       const newSheet = templateSheet.copyTo(ss);
       newSheet.setName(sheetName).showSheet();
       
-      // --- ADD FORMULAS TO THE NEW SHEET ---
-      // A1 gets a link to Problems!A[Row]
       newSheet.getRange("A1").setFormula("='Problems'!A" + currentRow);
-      
-      // A2 gets a link to Problems!B[Row]
       newSheet.getRange("A2").setFormula("='Problems'!B" + currentRow);
-      // -------------------------------------
       
-      ss.setActiveSheet(newSheet);
-      ss.moveActiveSheet(ss.getNumSheets());
+      // ss.setActiveSheet(newSheet);
+      // ss.moveActiveSheet(ss.getNumSheets());
+
     }
   });
   
-  ss.setActiveSheet(listSheet);
+  ss.setActiveSheet(problemSheet);
 }
 
 function validateSheetNames() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
-  const listSheet = ss.getSheetByName("Problems");
+  const problemSheet = ss.getSheetByName("Problems");
 
-  const lastRow = listSheet.getLastRow();
+  const lastRow = getLastRowInColumn(problemSheet, "A");
   if (lastRow < 2) {
     ui.alert("The list is empty. Please add problem names in column A, starting from row 2.");
     return false;
   }
 
-  const names = listSheet.getRange(2, 1, lastRow - 1, 1).getDisplayValues().flat();
+  const names = problemSheet.getRange(2, 1, lastRow - 1, 1).getDisplayValues().flat();
   const existingSheetNames = ss.getSheets().map(s => s.getName().toLowerCase());
   const invalidChars = /[\\\/\?\*\:\[\]]/;
   
@@ -181,36 +231,36 @@ function validateSheetNames() {
 
     // 1. Check for empty names
     if (trimmedName === "") {
-      errors.push(`- Row ${rowNum}: Problem name is blank (problem names should be listed consecutively).`);
+      errors.push(`- Cell A${rowNum}: Problem name is blank (problem names should be listed consecutively).`);
       return;
     }
 
     // 2. Check for length (Max 100 chars)
     if (trimmedName.length > 100) {
-      errors.push(`- Row ${rowNum}: Problem name is too long (max 100 characters).`);
+      errors.push(`- Cell A${rowNum}: Problem name is too long (max 100 characters).`);
     }
 
     // 3. Check for forbidden characters
     if (invalidChars.test(trimmedName)) {
-      errors.push(`- Row ${rowNum}: Problem name contains forbidden characters ( / \\ ? * : [ ] ).`);
+      errors.push(`- Cell A${rowNum}: Problem name contains forbidden characters ( / \\ ? * : [ ] ).`);
     }
 
     // 4. Check for duplicates within the Problems list itself
     if (seenInList.has(trimmedName.toLowerCase())) {
-      errors.push(`- Row ${rowNum}: Duplicate problem name "${trimmedName}" found within your list.`);
-      // \n\n  (This sometimes happens when calling problems '1.1', '1.2', ..., '1.10', where '1.1' is considered the same as '1.10'. It is advised to call them 'Q1.1', 'Q1.2', etc. instead.)
+      errors.push(`- Cell A${rowNum}: Duplicate problem name "${trimmedName}" found within your list.`);
     }
     seenInList.add(trimmedName.toLowerCase());
 
-    // 5. Check if a sheet with this name already exists in the workbook
-    if (existingSheetNames.includes(trimmedName.toLowerCase())) {
-      errors.push(`- Row ${rowNum}: A sheet named "${trimmedName}" already exists.`);
+    // 5. Check against reserved sheet names (Case-Insensitive)
+    const reserved = ["students", "problems", "emails", "template_", "totals"];
+    if (reserved.includes(trimmedName.toLowerCase())) {
+      errors.push(`- Cell A${rowNum}: "${trimmedName}" cannot be used as a problem name.`);
     }
   });
 
   if (errors.length > 0) {
     const message = "Please fix the following issues before creating the problem sheets:\n\n" + errors.join("\n");
-    ui.alert("Problems names should be changed", message, ui.ButtonSet.OK);
+    ui.alert("Problem names should be changed", message, ui.ButtonSet.OK);
     return false;
   }
 
