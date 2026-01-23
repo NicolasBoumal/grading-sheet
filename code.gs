@@ -41,30 +41,36 @@ function onEdit(e) {
 
       const ss = SpreadsheetApp.getActiveSpreadsheet();
 
+      /*
+
+        Used to display an alert message the first time the box is checked,
+        but this was removed to avoid losing too much of the 30 second time-out limit.
+
       // Check if at least one problem sheet was already created
+      // Could also just check Problems!F10.
       const notTheFirstTime = ss.getSheets().some(s => {
         return s.getName() === sheet.getRange("A2").getDisplayValue().toString().trim();
       });
 
       if (notTheFirstTime || ui.alert("Once this is checked, the list of problems and their names should no longer be changed.\n\nProceed?\n\n(Allow up to 30 seconds for the script to run. If not all problem sheets have been created, check the box anew until completion.)", ui.ButtonSet.YES_NO) == "YES") {
+      */
 
-        createSheetsFromList();
+      createSheetsFromList();
 
-        // The script may run out of time before getting here.
+      // The script may run out of time before getting here.
 
-        ss.getSheetByName("Totals").showSheet();
+      ss.getSheetByName("Totals").showSheet();
 
-        // Prevent further edits to the list of problem names
-        sheet.getRange("A:A").protect().setDescription("Problem names should no longer be changed.").setWarningOnly(true);
+      // Prevent further edits to the list of problem names
+      sheet.getRange("A:A").protect().setDescription("Problem names should no longer be changed.").setWarningOnly(true);
 
-        // We are done doing all the things that need to happen after checking the box,
-        // so it is safe to show it as "checked".
-        range.setValue(true);
-        range.protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
+      // We are done doing all the things that need to happen after checking the box,
+      // so it is safe to show it as "checked".
+      range.setValue(true);
+      range.protect().setDescription("This checkbox served its purpose.").setWarningOnly(true);
 
-        ui.alert("Problem names are now protected (weakly) against accidental edits.");
+      ui.alert("All sheets were created. Problem names are now protected (weakly) against accidental edits.");
 
-      }
     }
   }
 
@@ -76,7 +82,7 @@ function onEdit(e) {
       // runtime limit that does not pause while waiting for user input.
       range.setValue(false);
 
-      if (ui.alert("Once this is checked, student names and their groups should no longer be changed.\n\nProceed?\n\n(If so, then click YES within 30 seconds.)", ui.ButtonSet.YES_NO) == "YES") {
+      if (ui.alert("Once this is checked, student names and their groups should no longer be changed.\n\nProceed?\n\n(If so, then click YES within 20 seconds.)", ui.ButtonSet.YES_NO) == "YES") {
         
         // Prevent further edits to student names and group names.
         lockStudentsGroups();
@@ -146,7 +152,7 @@ function about() {
     '1. List the student names, and optionally group them.\n' +
     '2. Check the box once this is done.\n' +
     '3. List the problem names.\n' +
-    '4. Check the box once this is done.\n\n' +
+    '4. Check the box once this is done (possibly repeat until done).\n\n' +
     'Then, in each problem sheet, create one column per type ' +
     'of mistake, choose the associated penalty, and indicate ' +
     'which groups made that mistake ' +
@@ -155,7 +161,8 @@ function about() {
     'Color conventions:\n' + 
     ' * green cells: fill in once when setting up, then leave as is.\n' + 
     ' * blue cells: fill in whenever you want, and edit at will.\n' + 
-    ' * yellow cells: these are computed automatically: do not edit.',
+    ' * yellow cells: these are computed automatically: do not edit.\n\n' +
+    'For more information, visit: ' + 'https://www.racetothebottom.xyz/posts/grading-sheet/',
     ui.ButtonSet.OK
   );
 }
@@ -192,19 +199,22 @@ function createSheetsFromList() {
     // If the sheet does not exist yet, create it
     if (sheetName !== "" && !ss.getSheetByName(sheetName)) {
 
-      const newSheet = templateSheet.copyTo(ss);
-      newSheet.setName(sheetName).showSheet();
+      const newSheet = templateSheet.copyTo(ss); // This takes some time: may time out
       
-      newSheet.getRange("A1").setFormula("='Problems'!A" + currentRow);
+      newSheet.getRange("A1").setValue(sheetName); // Could also set the formula to: "='Problems'!A" + currentRow
       newSheet.getRange("A2").setFormula("='Problems'!B" + currentRow);
       
+      problemSheet.getRange("F10").setValue(problemSheet.getRange("F10").getValue() + 1);
+      
+      newSheet.setName(sheetName).showSheet(); // This takes some time: may time out
+
       // ss.setActiveSheet(newSheet);
       // ss.moveActiveSheet(ss.getNumSheets());
 
     }
   });
   
-  ss.setActiveSheet(problemSheet);
+  // ss.setActiveSheet(problemSheet);
 }
 
 function validateSheetNames() {
@@ -297,6 +307,7 @@ function resetSpreadsheet() {
     // Clear names in Column A and values in Column B
     probSheet.getRange("A2:B" + lastRow).clearContent();
   }
+  probSheet.getRange("F10").setValue(0); // Reset sheet generation count
 
   // 2. Uncheck checkboxes
   studSheet.getRange("K8").setValue(false);
