@@ -6,8 +6,9 @@ function onOpen() {
   // Hide helper sheets
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.getSheetByName("Template_").hideSheet();
-  ss.getSheetByName("Emails").hideSheet();
-  ss.getSheetByName("Totals").hideSheet();
+  // ss.getSheetByName("Emails").hideSheet(); -- commented out, because otherwise every time
+  // ss.getSheetByName("Totals").hideSheet(); -- the sheet is opened, they are hidden.
+  // Could just add logic based on checkbox status.
 
   // Create a custom menu
   SpreadsheetApp.getUi()
